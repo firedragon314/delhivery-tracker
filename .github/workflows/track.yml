@@ -5,6 +5,9 @@ on:
     - cron: "*/5 * * * *"   # every 5 minutes
   workflow_dispatch: {}      # lets you trigger a manual test run
 
+permissions:
+  contents: write   # needed so the workflow can commit last_status.json back
+
 jobs:
   track:
     runs-on: ubuntu-latest
@@ -45,9 +48,9 @@ jobs:
         env:
           START_DATE: ${{ vars.START_DATE }}
 
-      - name: Run tracker
+      - name: Run tracker (DEBUG MODE)
         if: steps.window.outputs.continue == 'true'
-        run: python track_delhivery.py
+        run: python track_delhivery.py --debug
         env:
           WAYBILL: ${{ secrets.WAYBILL }}
           TO_PHONE: ${{ secrets.TO_PHONE }}
