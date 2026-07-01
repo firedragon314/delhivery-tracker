@@ -58,6 +58,16 @@ jobs:
           TWILIO_AUTH: ${{ secrets.TWILIO_AUTH }}
           TWILIO_FROM: ${{ secrets.TWILIO_FROM }}
 
+      - name: Upload debug screenshots
+        if: steps.window.outputs.continue == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-output
+          path: |
+            debug_1_landing.png
+            debug_full_text.txt
+          retention-days: 3
+
       - name: Save updated status back to the repo
         if: steps.window.outputs.continue == 'true'
         run: |
