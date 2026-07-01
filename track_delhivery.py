@@ -3,13 +3,14 @@ Delhivery parcel tracker + SMS notifier.
 
 What it does
 ------------
-1. Opens Delhivery's public tracking page in a headless browser (the page
-   is JS-rendered, so plain requests/BeautifulSoup won't see the content).
-2. Searches for your waybill (AWB) number.
-3. Pulls out the latest status line and the tentative delivery date.
-4. If the status is NEW since the last run, sends you an SMS via Twilio:
+1. Opens Delhivery's direct tracking URL for your waybill number in a
+   headless browser (the page is JS-rendered, so plain requests/
+   BeautifulSoup won't see the content):
+       https://www.delhivery.com/track-v2/package/<waybill>
+2. Pulls out the latest status line and the tentative delivery date.
+3. If the status is NEW since the last run, sends you an SMS via Twilio:
        {time of update} + {update} + tentative date is {tentative date}
-5. Remembers the last status in last_status.json so you don't get the
+4. Remembers the last status in last_status.json so you don't get the
    same SMS twice.
 
 IMPORTANT — one-time setup step
@@ -45,44 +46,30 @@ from twilio.rest import Client
 
 IST = timezone(timedelta(hours=5, minutes=30))
 STATE_FILE = "last_status.json"
-TRACK_PAGE = "https://www.delhivery.com/tracking"
+TRACK_URL_TEMPLATE = "https://www.delhivery.com/track-v2/package/{waybill}"
 
 
-def fetch_tracking_text(waybill: str) -> str:
-    """Loads the Delhivery tracking page, submits the waybill, returns
-    all visible text on the results view."""
+def fetch_tracking_text(waybill: str, debug: bool = False) -> str:
+    """Loads the Delhivery direct tracking URL for this waybill and
+    returns all visible text once the page has rendered."""
+    url = TRACK_URL_TEMPLATE.format(waybill=waybill)
+
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
-        page.goto(TRACK_PAGE, timeout=60000)
-        page.wait_for_timeout(3000)  # let the SPA hydrate
+        page.goto(url, timeout=60000)
 
-        # The tracking input is usually the first visible text/search box.
-        # We try a few common selectors before giving up.
-        input_box = None
-        for selector in [
-            "input[type='search']",
-            "input[type='text']",
-            "input[placeholder*='AWB' i]",
-            "input[placeholder*='track' i]",
-            "input",
-        ]:
-            locator = page.locator(selector).first
-            if locator.count() > 0:
-                input_box = locator
-                break
+        try:
+            page.wait_for_load_state("networkidle", timeout=15000)
+        except Exception:
+            pass  # some pages keep background polling alive; don't block on it
 
-        if input_box is None:
-            browser.close()
-            raise RuntimeError(
-                "Could not find the tracking search box. Delhivery's page "
-                "layout may have changed — run with --debug and inspect "
-                "the HTML manually."
-            )
+        page.wait_for_timeout(4000)  # let the SPA finish rendering
 
-        input_box.fill(waybill)
-        input_box.press("Enter")
-        page.wait_for_timeout(6000)  # let results render
+        if debug:
+            page.screenshot(path="debug_1_landing.png", full_page=True)
+            print(f"Loaded URL: {url}")
+            print(f"Final page URL: {page.url}")
 
         body_text = page.inner_text("body")
         browser.close()
@@ -150,11 +137,13 @@ def main():
     debug = "--debug" in sys.argv
     waybill = os.environ["WAYBILL"]
 
-    body_text = fetch_tracking_text(waybill)
+    body_text = fetch_tracking_text(waybill, debug=debug)
 
     if debug:
+        with open("debug_full_text.txt", "w") as f:
+            f.write(body_text)
         print("=" * 60)
-        print("RAW PAGE TEXT (first 3000 chars):")
+        print("RAW PAGE TEXT (first 3000 chars — full text saved to debug_full_text.txt):")
         print("=" * 60)
         print(body_text[:3000])
         print("=" * 60)
